@@ -1,419 +1,418 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+import plotly.express as px
+from plotly.subplots import make_subplots
 
-# ─── Page Config ─────────────────────────────────────────────────────────────
+# ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Batik Air Fleet Dashboard",
+    page_title="Batik Air KPI Dashboard",
     page_icon="✈️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ─── Styling ──────────────────────────────────────────────────────────────────
+# ── Styling ───────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Background */
-    .stApp { background-color: #F5F7FA; }
-    .main .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
-
-    /* Metric cards */
-    [data-testid="stMetric"] {
-        background: white;
-        border-radius: 14px;
+    .main { background-color: #0f1117; }
+    .block-container { padding-top: 1.5rem; padding-bottom: 1rem; }
+    .metric-card {
+        background: linear-gradient(135deg, #1e2130, #252a3d);
+        border: 1px solid #2e3555;
+        border-radius: 12px;
         padding: 18px 22px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.07);
-        border-left: 4px solid #D32F2F;
+        text-align: center;
     }
-    [data-testid="stMetricLabel"] { font-size: 0.78rem; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-    [data-testid="stMetricValue"] { font-size: 2rem; font-weight: 700; color: #1a1a2e; }
-    [data-testid="stMetricDelta"] { font-size: 0.85rem; }
-
-    /* Section headers */
+    .metric-title { font-size: 0.78rem; color: #8892b0; font-weight: 600;
+                    text-transform: uppercase; letter-spacing: 0.05em; }
+    .metric-value { font-size: 2.0rem; font-weight: 800; margin: 6px 0 4px; }
+    .metric-sub   { font-size: 0.75rem; color: #8892b0; }
+    .meet  { color: #4ade80; }
+    .below { color: #f87171; }
     .section-header {
-        font-size: 1rem;
-        font-weight: 700;
-        color: #444;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        margin: 1.5rem 0 0.75rem 0;
-        padding-bottom: 6px;
-        border-bottom: 2px solid #e0e0e0;
+        font-size: 1.1rem; font-weight: 700; color: #ccd6f6;
+        border-left: 4px solid #60a5fa; padding-left: 10px; margin: 1.5rem 0 0.8rem;
     }
-
-    /* Divider */
-    hr { border: none; border-top: 1px solid #e8e8e8; margin: 1rem 0; }
-
-    /* Sidebar */
-    [data-testid="stSidebar"] { background: white; border-right: 1px solid #eee; }
-
-    /* Plotly charts */
-    .stPlotlyChart > div { border-radius: 14px; overflow: hidden; }
+    div[data-testid="stMetricValue"] > div { font-size: 1.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── Header ───────────────────────────────────────────────────────────────────
-st.markdown("""
-<div style="display:flex; align-items:center; gap:14px; margin-bottom:0.5rem;">
-    <div style="background:#D32F2F; border-radius:12px; padding:10px 14px; font-size:1.6rem;">✈️</div>
-    <div>
-        <div style="font-size:1.45rem; font-weight:800; color:#1a1a2e; line-height:1.2;">Batik Air — Fleet & Maintenance</div>
-        <div style="font-size:0.85rem; color:#888;">Aircraft Fleet Management Dashboard</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-st.markdown("<hr>", unsafe_allow_html=True)
+# ── Data ──────────────────────────────────────────────────────────────────────
+MONTHS = [
+    "JAN 25","FEB 25","MAR 25","APR 25","MAY 25","JUN 25",
+    "JUL 25","AUG 25","SEP 25","OCT 25","NOV 25","DEC 25",
+    "JAN 26","FEB 26","MAR 26",
+]
 
-# ─── File Upload ──────────────────────────────────────────────────────────────
-uploaded_file = st.file_uploader(
-    "📂 Upload your fleet data (CSV or Excel)",
-    type=["csv", "xlsx", "xls"],
-    help="Upload a file containing aircraft fleet and maintenance records.",
-)
-
-if uploaded_file is None:
-    st.info("👆 Upload a CSV or Excel file to get started.")
-    with st.expander("📋 Expected Column Format (click to expand)"):
-        st.markdown("Your file can contain **any combination** of these columns — the dashboard auto-detects them:")
-        expected = pd.DataFrame({
-            "Column Name": [
-                "Aircraft ID", "Registration", "Aircraft Type",
-                "Status", "Age (Years)", "Total Flight Hours", "Cycles",
-                "Last Maintenance Date", "Next Maintenance Date", "Maintenance Type",
-                "Maintenance Interval (Days)", "Base Airport",
-            ],
-            "Description": [
-                "Unique aircraft identifier", "ICAO/IATA tail number", "e.g. Boeing 737-900ER",
-                "Active / In Maintenance / AOG / Grounded", "Aircraft age in years", "Cumulative flight hours", "Number of flight cycles",
-                "Date of last maintenance event", "Scheduled next maintenance date", "e.g. A-Check, C-Check, D-Check",
-                "Days between scheduled checks", "Home base / hub",
-            ],
-        })
-        st.dataframe(expected, use_container_width=True, hide_index=True)
-    st.stop()
-
-# ─── Load Data ────────────────────────────────────────────────────────────────
 @st.cache_data
-def load_data(file):
-    if file.name.endswith(".csv"):
-        return pd.read_csv(file)
-    else:
-        return pd.read_excel(file)
+def load_data():
+    # ── Section 1: Dispatch Reliability ──────────────────────────────────────
+    dr = pd.DataFrame({
+        "Month": MONTHS,
+        "Flight_Cycles":       [7919,6993,6426,8152,7704,7600,8818,8616,7885,8228,8213,8695,8396,6681,7667],
+        "Tech_Delay_Count":    [108,85,67,87,59,57,44,49,54,53,51,89,103,69,50],
+        "DR_Pct":              [98.64,98.78,98.96,98.93,99.23,99.25,99.50,99.43,99.32,99.36,99.38,98.98,98.77,98.97,99.35],
+        "DR_Target":           [99.14,99.14,99.14,99.14,99.14,99.26,99.26,99.26,99.26,99.26,99.26,99.26,99.26,99.26,99.26],
+        "Status":              ["BELOW","BELOW","BELOW","BELOW","MEET","BELOW","MEET","MEET","MEET","MEET","MEET","BELOW","BELOW","BELOW","MEET"],
+    })
 
-df = load_data(uploaded_file)
+    # ── Section 2: DMI ───────────────────────────────────────────────────────
+    dmi = pd.DataFrame({
+        "Month": MONTHS,
+        "Flight_Cycles":       [7919,6993,6426,8152,7704,7600,8818,8616,7885,8228,8213,8695,8396,6681,7667],
+        "Rate_Close_DMI":      [87.86,88.09,88.27,91.38,87.42,84.54,88.09,86.56,90.57,80.32,85.79,93.40,90.08,88.71,86.77],
+        "Rate_Close_Target":   [84.7,84.7,84.7,84.7,84.7,72.54,72.54,72.54,72.54,72.54,72.54,72.54,72.54,72.54,81.18],
+        "Avg_Open_DMI":        [50,43,40,28,39,49,43,57,38,85,55,27,49,36,50],
+        "Avg_Open_DMI_per_AC": [0.769,0.662,0.615,0.431,0.600,0.754,0.683,0.905,0.603,1.349,0.873,0.435,0.790,0.581,0.806],
+        "Target_Open_per_AC":  [1.54,1.54,1.54,1.54,1.54,2.20,2.20,2.20,2.20,2.20,2.20,2.20,2.20,2.20,2.27],
+        "Investigate_DMI":     [0.73,1.11,0.59,0.31,0.32,0.95,4.99,0.94,5.21,6.02,5.43,0.49,1.42,4.70,4.50],
+        "Target_Investigate":  [13.09]*5 + [21.76]*10,
+        "DMI_1st_Ext":         [14.08,9.70,14.40,14.46,25.48,24.61,17.17,16.63,13.54,14.01,19.71,16.15,21.62,18.18,19.75],
+        "Target_1st_Ext":      [14.78]*5 + [14.95]*10,
+    })
 
-# Auto-detect date columns and parse
-for col in df.columns:
-    if any(k in col.lower() for k in ["date", "scheduled", "last", "next"]):
-        try:
-            df[col] = pd.to_datetime(df[col], dayfirst=True, errors="coerce")
-        except Exception:
-            pass
+    # ── Section 3: OTP ───────────────────────────────────────────────────────
+    otp = pd.DataFrame({
+        "Month": MONTHS,
+        "Flight_Cycles":  [7919,6993,6426,8152,7704,7600,8818,8616,7885,8228,8213,8695,8396,6681,7667],
+        "OTP_Pct":        [None]*12 + [72.0, 74.77, 80.78],
+        "OTP_Target":     [None]*12 + [85.0, 85.0, 85.0],
+        "Status":         ["—"]*12 + ["BELOW","BELOW","BELOW"],
+    })
 
-# Auto-detect key columns by name patterns
-def detect_col(df, *keywords):
-    for kw in keywords:
-        for col in df.columns:
-            if kw.lower() in col.lower():
-                return col
-    return None
+    return dr, dmi, otp
 
-col_id       = detect_col(df, "aircraft id", "tail", "registration", "id")
-col_type     = detect_col(df, "aircraft type", "type", "model")
-col_status   = detect_col(df, "status")
-col_age      = detect_col(df, "age")
-col_hours    = detect_col(df, "flight hour", "hours", "fh")
-col_cycles   = detect_col(df, "cycle")
-col_last     = detect_col(df, "last maintenance", "last check", "last maint")
-col_next     = detect_col(df, "next maintenance", "next check", "next maint")
-col_mtype    = detect_col(df, "maintenance type", "check type", "maint type")
-col_base     = detect_col(df, "base", "airport", "hub", "station")
+dr_df, dmi_df, otp_df = load_data()
 
-# ─── Sidebar Filters ──────────────────────────────────────────────────────────
+# ── Colour helpers ────────────────────────────────────────────────────────────
+CLR_MEET  = "#4ade80"
+CLR_BELOW = "#f87171"
+CLR_BLUE  = "#60a5fa"
+CLR_AMBER = "#fbbf24"
+CLR_GRID  = "rgba(255,255,255,0.07)"
+
+def status_color(s):  return CLR_MEET if s == "MEET" else CLR_BELOW
+
+def bar_colors(series, target_series):
+    return [CLR_MEET if v >= t else CLR_BELOW for v, t in zip(series, target_series)]
+
+def plotly_layout(title="", height=340):
+    return dict(
+        title=dict(text=title, font=dict(size=13, color="#ccd6f6")),
+        height=height,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#8892b0", size=11),
+        legend=dict(orientation="h", y=-0.18, x=0.5, xanchor="center",
+                    bgcolor="rgba(0,0,0,0)", font=dict(size=10)),
+        margin=dict(l=40, r=20, t=45, b=50),
+        xaxis=dict(showgrid=False, tickfont=dict(size=9)),
+        yaxis=dict(gridcolor=CLR_GRID, zeroline=False),
+    )
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🔍 Filters")
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Batik_Air_logo.svg/320px-Batik_Air_logo.svg.png",
+             use_column_width=True)
+    st.markdown("---")
+    st.markdown("### 📊 KPI Dashboard")
+    section = st.radio(
+        "Select Section",
+        ["🏠 Overview", "✈️ Dispatch Reliability", "🔧 DMI", "⏱️ On-Time Performance"],
+        label_visibility="collapsed",
+    )
+    st.markdown("---")
+    all_months = MONTHS
+    sel = st.select_slider("Month Range", options=all_months,
+                           value=(all_months[0], all_months[-1]))
+    idx_start = all_months.index(sel[0])
+    idx_end   = all_months.index(sel[1]) + 1
 
-    filtered_df = df.copy()
+    dr_f   = dr_df.iloc[idx_start:idx_end].reset_index(drop=True)
+    dmi_f  = dmi_df.iloc[idx_start:idx_end].reset_index(drop=True)
+    otp_f  = otp_df.iloc[idx_start:idx_end].reset_index(drop=True)
 
-    if col_status:
-        unique_statuses = sorted(df[col_status].dropna().unique().tolist())
-        sel_status = st.multiselect("Aircraft Status", unique_statuses, default=unique_statuses)
-        filtered_df = filtered_df[filtered_df[col_status].isin(sel_status)]
+    st.markdown("---")
+    st.caption("Data: Jan 2025 – Mar 2026")
 
-    if col_type:
-        unique_types = sorted(df[col_type].dropna().unique().tolist())
-        sel_type = st.multiselect("Aircraft Type", unique_types, default=unique_types)
-        filtered_df = filtered_df[filtered_df[col_type].isin(sel_type)]
+# ══════════════════════════════════════════════════════════════════════════════
+# OVERVIEW
+# ══════════════════════════════════════════════════════════════════════════════
+if section == "🏠 Overview":
+    st.markdown("## ✈️ Batik Air — KPI Performance Trend  `JAN 2025 – MAR 2026`")
 
-    if col_base:
-        unique_bases = sorted(df[col_base].dropna().unique().tolist())
-        sel_base = st.multiselect("Base Airport", unique_bases, default=unique_bases)
-        filtered_df = filtered_df[filtered_df[col_base].isin(sel_base)]
+    # Top KPI cards
+    latest_dr   = dr_df.iloc[-1]
+    latest_dmi  = dmi_df.iloc[-1]
+    latest_otp  = otp_df.iloc[-1]
 
-    if col_age:
-        try:
-            min_age = float(df[col_age].min())
-            max_age = float(df[col_age].max())
-            if min_age < max_age:
-                age_range = st.slider("Aircraft Age (Years)", min_age, max_age, (min_age, max_age))
-                filtered_df = filtered_df[
-                    (filtered_df[col_age] >= age_range[0]) &
-                    (filtered_df[col_age] <= age_range[1])
-                ]
-        except Exception:
-            pass
+    c1, c2, c3, c4, c5 = st.columns(5)
+    cards = [
+        (c1, "Dispatch Reliability", f"{latest_dr['DR_Pct']:.2f}%",
+         f"Target {latest_dr['DR_Target']:.2f}%", latest_dr['Status']),
+        (c2, "Tech Delay Count", f"{int(latest_dr['Tech_Delay_Count'])}",
+         "Mar 26", "MEET" if latest_dr['Tech_Delay_Count'] < 60 else "BELOW"),
+        (c3, "DMI Close Rate", f"{latest_dmi['Rate_Close_DMI']:.2f}%",
+         f"Target {latest_dmi['Rate_Close_Target']:.2f}%",
+         "MEET" if latest_dmi['Rate_Close_DMI'] >= latest_dmi['Rate_Close_Target'] else "BELOW"),
+        (c4, "Avg Open DMI/AC", f"{latest_dmi['Avg_Open_DMI_per_AC']:.3f}",
+         f"Target {latest_dmi['Target_Open_per_AC']:.2f}",
+         "MEET" if latest_dmi['Avg_Open_DMI_per_AC'] <= latest_dmi['Target_Open_per_AC'] else "BELOW"),
+        (c5, "OTP", f"{latest_otp['OTP_Pct']:.1f}%" if latest_otp['OTP_Pct'] else "N/A",
+         "Target 85.00%",
+         latest_otp['Status'] if latest_otp['Status'] != "—" else "BELOW"),
+    ]
+    for col, title, val, sub, stat in cards:
+        color_cls = "meet" if stat == "MEET" else "below"
+        col.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">{title}</div>
+            <div class="metric-value {color_cls}">{val}</div>
+            <div class="metric-sub">{sub} &nbsp; {'🟢' if stat=='MEET' else '🔴'}</div>
+        </div>""", unsafe_allow_html=True)
 
-    st.divider()
-    st.markdown(f"**{len(filtered_df)}** of **{len(df)}** aircraft shown")
-    st.caption(f"Last updated: {datetime.today().strftime('%d %b %Y')}")
+    st.markdown("<br>", unsafe_allow_html=True)
 
-# ─── KPI Cards ────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-header">📊 Fleet Overview</div>', unsafe_allow_html=True)
+    # ── Mini trend charts side by side ───────────────────────────────────────
+    col_a, col_b = st.columns(2)
 
-total = len(filtered_df)
-if col_status:
-    active    = filtered_df[col_status].str.lower().str.contains("active|operational", na=False).sum()
-    in_maint  = filtered_df[col_status].str.lower().str.contains("maintenance|mro|check", na=False).sum()
-    aog       = filtered_df[col_status].str.lower().str.contains("aog|grounded|unserviceable", na=False).sum()
-    avail_pct = round(active / total * 100, 1) if total > 0 else 0.0
-else:
-    active = in_maint = aog = 0
-    avail_pct = 0.0
-
-avg_age   = round(filtered_df[col_age].mean(), 1)   if col_age   else "—"
-avg_hours = int(filtered_df[col_hours].mean())       if col_hours else "—"
-
-k1, k2, k3, k4, k5, k6 = st.columns(6)
-k1.metric("Total Aircraft",    total)
-k2.metric("Active Fleet",      active)
-k3.metric("In Maintenance",    in_maint)
-k4.metric("AOG / Grounded",    aog)
-k5.metric("Availability",      f"{avail_pct}%")
-k6.metric("Avg Age (yrs)",     avg_age)
-
-st.markdown("<hr>", unsafe_allow_html=True)
-
-# ─── Row 1: Status & Type ─────────────────────────────────────────────────────
-st.markdown('<div class="section-header">🗂️ Fleet Composition</div>', unsafe_allow_html=True)
-r1c1, r1c2 = st.columns(2)
-
-BATIK_COLORS = ["#D32F2F", "#1565C0", "#2E7D32", "#F57C00", "#6A1B9A", "#00838F"]
-
-with r1c1:
-    if col_status:
-        counts = filtered_df[col_status].value_counts().reset_index()
-        counts.columns = ["Status", "Count"]
-        fig = px.pie(
-            counts, names="Status", values="Count",
-            title="Fleet Status Distribution",
-            hole=0.48,
-            color_discrete_sequence=BATIK_COLORS,
-        )
-        fig.update_traces(textposition="outside", textinfo="percent+label")
-        fig.update_layout(
-            paper_bgcolor="white", plot_bgcolor="white",
-            margin=dict(t=50, b=20, l=20, r=20),
-            showlegend=False,
-            font=dict(family="Inter, sans-serif", size=12),
-        )
+    with col_a:
+        st.markdown('<div class="section-header">Dispatch Reliability Trend</div>', unsafe_allow_html=True)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=dr_f["Month"], y=dr_f["DR_Target"],
+                                 name="Target", line=dict(color=CLR_AMBER, dash="dash", width=1.5)))
+        fig.add_trace(go.Scatter(x=dr_f["Month"], y=dr_f["DR_Pct"],
+                                 name="DR %", line=dict(color=CLR_BLUE, width=2.5),
+                                 mode="lines+markers",
+                                 marker=dict(color=[status_color(s) for s in dr_f["Status"]], size=7)))
+        fig.update_layout(**plotly_layout("", 270))
+        fig.update_yaxes(range=[98.4, 99.7])
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("No 'Status' column detected.")
 
-with r1c2:
-    if col_type:
-        counts = filtered_df[col_type].value_counts().reset_index()
-        counts.columns = ["Type", "Count"]
-        fig2 = px.bar(
-            counts, x="Count", y="Type",
-            title="Aircraft by Type",
-            orientation="h",
-            color="Count",
-            color_continuous_scale=[[0, "#FFCDD2"], [1, "#B71C1C"]],
-            text="Count",
-        )
-        fig2.update_traces(textposition="outside")
-        fig2.update_layout(
-            paper_bgcolor="white", plot_bgcolor="white",
-            margin=dict(t=50, b=20, l=20, r=20),
-            coloraxis_showscale=False,
-            font=dict(family="Inter, sans-serif", size=12),
-            xaxis_title=None, yaxis_title=None,
-            yaxis=dict(categoryorder="total ascending"),
-        )
+    with col_b:
+        st.markdown('<div class="section-header">DMI Close Rate Trend</div>', unsafe_allow_html=True)
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(x=dmi_f["Month"], y=dmi_f["Rate_Close_Target"],
+                                  name="Target", line=dict(color=CLR_AMBER, dash="dash", width=1.5)))
+        fig2.add_trace(go.Scatter(x=dmi_f["Month"], y=dmi_f["Rate_Close_DMI"],
+                                  name="Close Rate %", line=dict(color="#a78bfa", width=2.5),
+                                  mode="lines+markers",
+                                  marker=dict(
+                                      color=[CLR_MEET if v >= t else CLR_BELOW
+                                             for v,t in zip(dmi_f["Rate_Close_DMI"], dmi_f["Rate_Close_Target"])],
+                                      size=7)))
+        fig2.update_layout(**plotly_layout("", 270))
         st.plotly_chart(fig2, use_container_width=True)
-    else:
-        st.warning("No 'Aircraft Type' column detected.")
 
-# ─── Row 2: Age & Hours ───────────────────────────────────────────────────────
-st.markdown('<div class="section-header">📈 Fleet Metrics</div>', unsafe_allow_html=True)
-r2c1, r2c2 = st.columns(2)
+    # ── Flight Cycles bar ─────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Monthly Flight Cycles</div>', unsafe_allow_html=True)
+    fig3 = go.Figure(go.Bar(x=dr_f["Month"], y=dr_f["Flight_Cycles"],
+                             marker_color=CLR_BLUE, opacity=0.8,
+                             text=dr_f["Flight_Cycles"], textposition="outside",
+                             textfont=dict(size=9)))
+    fig3.update_layout(**plotly_layout("", 260))
+    st.plotly_chart(fig3, use_container_width=True)
 
-with r2c1:
-    if col_age:
-        fig3 = px.histogram(
-            filtered_df, x=col_age,
-            nbins=12,
-            title="Aircraft Age Distribution (Years)",
-            color_discrete_sequence=["#1565C0"],
-            labels={col_age: "Age (Years)"},
-        )
-        fig3.update_layout(
-            paper_bgcolor="white", plot_bgcolor="white",
-            margin=dict(t=50, b=20, l=20, r=20),
-            bargap=0.08,
-            font=dict(family="Inter, sans-serif", size=12),
-            xaxis_title="Age (Years)", yaxis_title="Aircraft Count",
-        )
-        fig3.add_vline(
-            x=filtered_df[col_age].mean(), line_dash="dash",
-            line_color="#D32F2F",
-            annotation_text=f"Avg {filtered_df[col_age].mean():.1f}y",
-            annotation_position="top right",
-        )
+    # ── Summary table ─────────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Period Summary Table</div>', unsafe_allow_html=True)
+    summary = dr_f[["Month","Flight_Cycles","Tech_Delay_Count","DR_Pct","DR_Target","Status"]].copy()
+    summary.columns = ["Month","Flt Cycles","Tech Delays","DR (%)","Target (%)","Status"]
+
+    def highlight_status(row):
+        color = "#14532d" if row["Status"] == "MEET" else "#450a0a"
+        return [f"background-color: {color}; color: white" if col == "Status" else "" for col in row.index]
+
+    st.dataframe(summary.style.apply(highlight_status, axis=1)
+                 .format({"DR (%)": "{:.2f}", "Target (%)": "{:.2f}"}),
+                 use_container_width=True, hide_index=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 1 – DISPATCH RELIABILITY
+# ══════════════════════════════════════════════════════════════════════════════
+elif section == "✈️ Dispatch Reliability":
+    st.markdown("## ✈️ Aircraft Dispatch Reliability")
+
+    meet_count = (dr_f["Status"] == "MEET").sum()
+    below_count = (dr_f["Status"] == "BELOW").sum()
+    avg_dr = dr_f["DR_Pct"].mean()
+    avg_target = dr_f["DR_Target"].mean()
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Avg Dispatch Reliability", f"{avg_dr:.2f}%", f"{avg_dr - avg_target:+.2f}% vs target")
+    m2.metric("Months Meeting Target", f"{meet_count}/{len(dr_f)}")
+    m3.metric("Avg Tech Delay Count", f"{dr_f['Tech_Delay_Count'].mean():.1f}")
+    m4.metric("Total Flight Cycles", f"{dr_f['Flight_Cycles'].sum():,}")
+
+    # DR trend
+    st.markdown('<div class="section-header">Dispatch Reliability vs Target</div>', unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=dr_f["Month"], y=dr_f["DR_Target"],
+                             name="Target", line=dict(color=CLR_AMBER, dash="dash", width=2),
+                             mode="lines"))
+    fig.add_trace(go.Scatter(x=dr_f["Month"], y=dr_f["DR_Pct"],
+                             name="Dispatch Reliability (%)",
+                             line=dict(color=CLR_BLUE, width=2.5),
+                             mode="lines+markers+text",
+                             text=[f"{v:.2f}" for v in dr_f["DR_Pct"]],
+                             textposition="top center", textfont=dict(size=9),
+                             marker=dict(color=[status_color(s) for s in dr_f["Status"]], size=9)))
+    fig.update_layout(**plotly_layout("", 380))
+    fig.update_yaxes(range=[98.3, 99.75])
+    st.plotly_chart(fig, use_container_width=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        # Tech Delay bars
+        st.markdown('<div class="section-header">Technical Delay Count</div>', unsafe_allow_html=True)
+        fig2 = go.Figure(go.Bar(
+            x=dr_f["Month"], y=dr_f["Tech_Delay_Count"],
+            marker_color=[CLR_BELOW if v > 70 else CLR_MEET for v in dr_f["Tech_Delay_Count"]],
+            text=dr_f["Tech_Delay_Count"], textposition="outside", textfont=dict(size=9)
+        ))
+        fig2.update_layout(**plotly_layout("", 310))
+        st.plotly_chart(fig2, use_container_width=True)
+
+    with col2:
+        # vs Target bar
+        st.markdown('<div class="section-header">DR vs Target (Delta)</div>', unsafe_allow_html=True)
+        delta = dr_f["DR_Pct"] - dr_f["DR_Target"]
+        fig3 = go.Figure(go.Bar(
+            x=dr_f["Month"], y=delta,
+            marker_color=[CLR_MEET if v >= 0 else CLR_BELOW for v in delta],
+            text=[f"{v:+.2f}" for v in delta], textposition="outside", textfont=dict(size=9)
+        ))
+        fig3.add_hline(y=0, line_color="white", line_width=1)
+        fig3.update_layout(**plotly_layout("", 310))
         st.plotly_chart(fig3, use_container_width=True)
-    else:
-        st.warning("No 'Age' column detected.")
 
-with r2c2:
-    if col_hours and col_id:
-        hrs = filtered_df[[col_id, col_hours]].dropna().sort_values(col_hours, ascending=False).head(15)
-        fig4 = px.bar(
-            hrs, x=col_id, y=col_hours,
-            title="Top 15 Aircraft by Flight Hours",
-            color=col_hours,
-            color_continuous_scale=[[0, "#E8F5E9"], [1, "#1B5E20"]],
-            text=col_hours,
-        )
-        fig4.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
-        fig4.update_layout(
-            paper_bgcolor="white", plot_bgcolor="white",
-            margin=dict(t=50, b=20, l=20, r=20),
-            coloraxis_showscale=False,
-            font=dict(family="Inter, sans-serif", size=12),
-            xaxis_title=None, yaxis_title="Flight Hours",
-        )
-        st.plotly_chart(fig4, use_container_width=True)
-    elif col_hours:
-        fig4 = px.histogram(filtered_df, x=col_hours, title="Flight Hours Distribution",
-                            color_discrete_sequence=["#2E7D32"], nbins=12)
-        fig4.update_layout(paper_bgcolor="white", plot_bgcolor="white",
-                           margin=dict(t=50, b=20, l=20, r=20))
-        st.plotly_chart(fig4, use_container_width=True)
-    else:
-        st.warning("No 'Flight Hours' column detected.")
-
-# ─── Row 3: Maintenance Types & Timeline ──────────────────────────────────────
-st.markdown('<div class="section-header">🔧 Maintenance Insights</div>', unsafe_allow_html=True)
-r3c1, r3c2 = st.columns(2)
-
-with r3c1:
-    if col_mtype:
-        mtype_counts = filtered_df[col_mtype].value_counts().reset_index()
-        mtype_counts.columns = ["Maintenance Type", "Count"]
-        fig5 = px.bar(
-            mtype_counts, x="Maintenance Type", y="Count",
-            title="Maintenance Events by Type",
-            color="Maintenance Type",
-            color_discrete_sequence=BATIK_COLORS,
-            text="Count",
-        )
-        fig5.update_traces(textposition="outside")
-        fig5.update_layout(
-            paper_bgcolor="white", plot_bgcolor="white",
-            margin=dict(t=50, b=20, l=20, r=20),
-            showlegend=False,
-            font=dict(family="Inter, sans-serif", size=12),
-            xaxis_title=None, yaxis_title="Count",
-        )
-        st.plotly_chart(fig5, use_container_width=True)
-    else:
-        st.warning("No 'Maintenance Type' column detected.")
-
-with r3c2:
-    if col_next and pd.api.types.is_datetime64_any_dtype(filtered_df[col_next]):
-        today = pd.Timestamp.today().normalize()
-        future = filtered_df[filtered_df[col_next] >= today].copy()
-        future["Days Until"] = (future[col_next] - today).dt.days
-        future["Urgency"] = pd.cut(
-            future["Days Until"],
-            bins=[-1, 14, 30, 90, float("inf")],
-            labels=["Overdue/Critical", "Within 2 Weeks", "Within 30 Days", "Planned"],
-        )
-        urg_counts = future["Urgency"].value_counts().reset_index()
-        urg_counts.columns = ["Urgency", "Count"]
-        urg_colors = {
-            "Overdue/Critical": "#D32F2F",
-            "Within 2 Weeks":   "#F57C00",
-            "Within 30 Days":   "#FBC02D",
-            "Planned":          "#388E3C",
-        }
-        fig6 = px.bar(
-            urg_counts, x="Urgency", y="Count",
-            title="Upcoming Maintenance Urgency",
-            color="Urgency",
-            color_discrete_map=urg_colors,
-            text="Count",
-        )
-        fig6.update_traces(textposition="outside")
-        fig6.update_layout(
-            paper_bgcolor="white", plot_bgcolor="white",
-            margin=dict(t=50, b=20, l=20, r=20),
-            showlegend=False,
-            font=dict(family="Inter, sans-serif", size=12),
-            xaxis_title=None, yaxis_title="Aircraft Count",
-        )
-        st.plotly_chart(fig6, use_container_width=True)
-    else:
-        st.warning("No valid 'Next Maintenance Date' column detected.")
-
-# ─── Maintenance Schedule Table ───────────────────────────────────────────────
-st.markdown('<div class="section-header">📅 Upcoming Maintenance Schedule</div>', unsafe_allow_html=True)
-
-if col_next and pd.api.types.is_datetime64_any_dtype(filtered_df[col_next]):
-    today = pd.Timestamp.today().normalize()
-    upcoming = filtered_df[filtered_df[col_next] >= today].copy()
-    upcoming["Days Until Next Check"] = (upcoming[col_next] - today).dt.days
-    upcoming = upcoming.sort_values("Days Until Next Check")
-
-    # Format date columns for display
-    display_cols = [c for c in [col_id, col_type, col_status, col_mtype, col_last, col_next, "Days Until Next Check"] if c and c in upcoming.columns]
-    display_df = upcoming[display_cols].copy()
-    for dc in [col_last, col_next]:
-        if dc and dc in display_df.columns:
-            display_df[dc] = display_df[dc].dt.strftime("%d %b %Y")
-
-    def highlight_urgency(row):
-        days = row.get("Days Until Next Check", 999)
-        if isinstance(days, (int, float)):
-            if days <= 14:
-                return ["background-color: #FFEBEE"] * len(row)
-            elif days <= 30:
-                return ["background-color: #FFF8E1"] * len(row)
-        return [""] * len(row)
-
+    # Data table
+    st.markdown('<div class="section-header">Detailed Data</div>', unsafe_allow_html=True)
+    display = dr_f.copy()
+    display["vs Target"] = (display["DR_Pct"] - display["DR_Target"]).round(2)
+    display.columns = ["Month","Flight Cycles","Tech Delays","DR (%)","Target (%)","Status","vs Target"]
     st.dataframe(
-        display_df.style.apply(highlight_urgency, axis=1),
-        use_container_width=True,
-        hide_index=True,
-        height=320,
+        display.style
+        .apply(lambda row: [f"background-color: {'#14532d' if row['Status']=='MEET' else '#450a0a'}; color:white"
+                            if col == "Status" else "" for col in row.index], axis=1)
+        .format({"DR (%)": "{:.2f}", "Target (%)": "{:.2f}", "vs Target": "{:+.2f}"}),
+        use_container_width=True, hide_index=True
     )
-else:
-    st.markdown("#### Full Fleet Data")
-    st.dataframe(filtered_df, use_container_width=True, hide_index=True, height=300)
 
-# ─── Footer ───────────────────────────────────────────────────────────────────
-st.markdown("<hr>", unsafe_allow_html=True)
-col_dl, col_info = st.columns([1, 3])
-with col_dl:
-    csv = filtered_df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "⬇️ Download Filtered Data (CSV)",
-        data=csv,
-        file_name="batikair_fleet_export.csv",
-        mime="text/csv",
-    )
-with col_info:
-    st.caption(f"Batik Air Fleet Dashboard • {len(filtered_df)} records • Generated {datetime.today().strftime('%d %B %Y')}")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 2 – DMI
+# ══════════════════════════════════════════════════════════════════════════════
+elif section == "🔧 DMI":
+    st.markdown("## 🔧 Deferred Maintenance Item (DMI)")
+
+    avg_close   = dmi_f["Rate_Close_DMI"].mean()
+    avg_open_ac = dmi_f["Avg_Open_DMI_per_AC"].mean()
+    avg_ext     = dmi_f["DMI_1st_Ext"].mean()
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Avg DMI Close Rate",   f"{avg_close:.2f}%")
+    m2.metric("Avg Open DMI/AC",      f"{avg_open_ac:.3f}", delta=f"Target {dmi_f['Target_Open_per_AC'].mean():.2f}")
+    m3.metric("Avg DMI 1st Ext.",     f"{avg_ext:.2f}%")
+    m4.metric("Avg Open DMI Count",   f"{dmi_f['Avg_Open_DMI'].mean():.1f}")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown('<div class="section-header">DMI Close Rate vs Target</div>', unsafe_allow_html=True)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=dmi_f["Month"], y=dmi_f["Rate_Close_Target"],
+                                 name="Target", line=dict(color=CLR_AMBER, dash="dash", width=2)))
+        colors = [CLR_MEET if v >= t else CLR_BELOW
+                  for v,t in zip(dmi_f["Rate_Close_DMI"], dmi_f["Rate_Close_Target"])]
+        fig.add_trace(go.Scatter(x=dmi_f["Month"], y=dmi_f["Rate_Close_DMI"],
+                                 name="Close Rate %", line=dict(color="#a78bfa", width=2.5),
+                                 mode="lines+markers",
+                                 marker=dict(color=colors, size=9)))
+        fig.update_layout(**plotly_layout("", 300))
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        st.markdown('<div class="section-header">Avg Open DMI per Aircraft vs Target</div>', unsafe_allow_html=True)
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(x=dmi_f["Month"], y=dmi_f["Target_Open_per_AC"],
+                                  name="Target", line=dict(color=CLR_AMBER, dash="dash", width=2)))
+        colors2 = [CLR_MEET if v <= t else CLR_BELOW
+                   for v,t in zip(dmi_f["Avg_Open_DMI_per_AC"], dmi_f["Target_Open_per_AC"])]
+        fig2.add_trace(go.Scatter(x=dmi_f["Month"], y=dmi_f["Avg_Open_DMI_per_AC"],
+                                  name="Avg Open/AC", line=dict(color="#34d399", width=2.5),
+                                  mode="lines+markers",
+                                  marker=dict(color=colors2, size=9)))
+        fig2.update_layout(**plotly_layout("", 300))
+        st.plotly_chart(fig2, use_container_width=True)
+
+    col3, col4 = st.columns(2)
+    with col3:
+        st.markdown('<div class="section-header">DMI 1st Extension vs Target</div>', unsafe_allow_html=True)
+        fig3 = go.Figure()
+        fig3.add_trace(go.Scatter(x=dmi_f["Month"], y=dmi_f["Target_1st_Ext"],
+                                  name="Target", line=dict(color=CLR_AMBER, dash="dash", width=2)))
+        fig3.add_trace(go.Bar(x=dmi_f["Month"], y=dmi_f["DMI_1st_Ext"],
+                              name="1st Ext %",
+                              marker_color=[CLR_BELOW if v > t else CLR_MEET
+                                            for v,t in zip(dmi_f["DMI_1st_Ext"], dmi_f["Target_1st_Ext"])],
+                              opacity=0.75))
+        fig3.update_layout(**plotly_layout("", 300))
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with col4:
+        st.markdown('<div class="section-header">Average Open DMI Count</div>', unsafe_allow_html=True)
+        fig4 = go.Figure(go.Bar(x=dmi_f["Month"], y=dmi_f["Avg_Open_DMI"],
+                                 marker_color=CLR_BLUE, opacity=0.8,
+                                 text=dmi_f["Avg_Open_DMI"].astype(int),
+                                 textposition="outside", textfont=dict(size=9)))
+        fig4.update_layout(**plotly_layout("", 300))
+        st.plotly_chart(fig4, use_container_width=True)
+
+    st.markdown('<div class="section-header">Detailed DMI Data</div>', unsafe_allow_html=True)
+    cols_show = ["Month","Rate_Close_DMI","Rate_Close_Target","Avg_Open_DMI",
+                 "Avg_Open_DMI_per_AC","Target_Open_per_AC","DMI_1st_Ext","Target_1st_Ext"]
+    display = dmi_f[cols_show].copy()
+    display.columns = ["Month","Close Rate (%)","Close Target (%)","Avg Open DMI",
+                       "Open/AC","Target Open/AC","1st Ext (%)","Target 1st Ext (%)"]
+    st.dataframe(display.style.format({c: "{:.2f}" for c in display.columns[1:]}),
+                 use_container_width=True, hide_index=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 3 – OTP
+# ══════════════════════════════════════════════════════════════════════════════
+elif section == "⏱️ On-Time Performance":
+    st.markdown("## ⏱️ On-Time Performance (OTP)")
+
+    otp_avail = otp_f.dropna(subset=["OTP_Pct"])
+
+    if otp_avail.empty:
+        st.info("ℹ️ OTP data is not yet available for the selected range. Data is available from Jan 2026 onward.")
+    else:
+        avg_otp = otp_avail["OTP_Pct"].mean()
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Avg OTP", f"{avg_otp:.2f}%", f"{avg_otp - 85:.2f}% vs target 85%")
+        m2.metric("Months of Data", f"{len(otp_avail)}")
+        m3.metric("Latest OTP (Mar 26)", "80.78%", "-4.22% vs target")
+
+        st.markdown('<div class="section-header">OTP Trend vs Target (85%)</div>', unsafe_allow_html=True)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=otp_avail["Month"], y=otp_avail["OTP_Target"],
+                                 name="Target (85%)", line=dict(color=CLR_AMBER, dash="dash", width=2)))
+        fig.add_trace(go.Bar(x=otp_avail["Month"], y=otp_avail["OTP_Pct"],
+                             name="OTP (%)",
+                             marker_color=[CLR_BELOW]*len(otp_avail),
+                             opacity=0.8,
+                             text=[f"{v:.2f}%" for v in otp_avail["OTP_Pct"]],
+                             textposition="outside", textfont=dict(size=11)))
+        fig.update_layout(**plotly_layout("", 380))
+        fig.update_yaxes(range=[65, 90])
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown('<div class="section-header">OTP Data Table</div>', unsafe_allow_html=True)
+    disp = otp_f[["Month","Flight_Cycles","OTP_Pct","OTP_Target","Status"]].copy()
+    disp.columns = ["Month","Flight Cycles","OTP (%)","Target (%)","Status"]
+    st.dataframe(disp, use_container_width=True, hide_index=True)
+
+    st.info("📌 OTP data for Jan 2025 – Dec 2025 is pending. Please update the source file to populate the full trend.")
