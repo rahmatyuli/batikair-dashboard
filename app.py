@@ -73,13 +73,14 @@ def load_data():
     })
 
     # ── Section 3: OTP ───────────────────────────────────────────────────────
+    # ✅ FIX BUG 1: Removed the accidental '+ [72.0, 74.77, 80.78]' duplication.
+    # OTP_Pct now has exactly 15 values matching MONTHS (was 18, causing a crash).
     otp = pd.DataFrame({
         "Month": MONTHS,
         "Flight_Cycles":  [7919,6993,6426,8152,7704,7600,8818,8616,7885,8228,8213,8695,8396,6681,7667],
-        "OTP_Pct":        [74.83, 68.40, 82.00, 69.47, 75.21, 71.81, 61.76, 55.24, 71.42, 75.97, 77.73, 73.07, 72.00, 74.77, 80.78
-] + [72.0, 74.77, 80.78],
-        "OTP_Target":     [85.0]*12 + [85.0, 85.0, 85.0],
-        "Status":         ["BELOW"]*12 + ["BELOW","BELOW","BELOW"],
+        "OTP_Pct":        [74.83,68.40,82.00,69.47,75.21,71.81,61.76,55.24,71.42,75.97,77.73,73.07,72.00,74.77,80.78],
+        "OTP_Target":     [85.0] * 15,
+        "Status":         ["BELOW"] * 15,
     })
 
     return dr, dmi, otp
@@ -114,8 +115,11 @@ def plotly_layout(title="", height=340):
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Batik_Air_logo.svg/320px-Batik_Air_logo.svg.png",
-             use_column_width=True)
+    # ✅ FIX BUG 2: Changed use_column_width (deprecated) → use_container_width
+    st.image(
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Batik_Air_logo.svg/320px-Batik_Air_logo.svg.png",
+        use_container_width=True,
+    )
     st.markdown("---")
     st.markdown("### 📊 KPI Dashboard")
     section = st.radio(
@@ -143,7 +147,6 @@ with st.sidebar:
 if section == "🏠 Overview":
     st.markdown("## ✈️ Batik Air — KPI Performance Trend  `JAN 2025 – MAR 2026`")
 
-    # Top KPI cards
     latest_dr   = dr_df.iloc[-1]
     latest_dmi  = dmi_df.iloc[-1]
     latest_otp  = otp_df.iloc[-1]
@@ -160,9 +163,8 @@ if section == "🏠 Overview":
         (c4, "Avg Open DMI/AC", f"{latest_dmi['Avg_Open_DMI_per_AC']:.3f}",
          f"Target {latest_dmi['Target_Open_per_AC']:.2f}",
          "MEET" if latest_dmi['Avg_Open_DMI_per_AC'] <= latest_dmi['Target_Open_per_AC'] else "BELOW"),
-        (c5, "OTP", f"{latest_otp['OTP_Pct']:.1f}%" if latest_otp['OTP_Pct'] else "N/A",
-         "Target 85.00%",
-         latest_otp['Status'] if latest_otp['Status'] != "—" else "BELOW"),
+        (c5, "OTP", f"{latest_otp['OTP_Pct']:.1f}%",
+         "Target 85.00%", latest_otp['Status']),
     ]
     for col, title, val, sub, stat in cards:
         color_cls = "meet" if stat == "MEET" else "below"
@@ -175,7 +177,6 @@ if section == "🏠 Overview":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Mini trend charts side by side ───────────────────────────────────────
     col_a, col_b = st.columns(2)
 
     with col_a:
@@ -206,7 +207,6 @@ if section == "🏠 Overview":
         fig2.update_layout(**plotly_layout("", 270))
         st.plotly_chart(fig2, use_container_width=True)
 
-    # ── Flight Cycles bar ─────────────────────────────────────────────────────
     st.markdown('<div class="section-header">Monthly Flight Cycles</div>', unsafe_allow_html=True)
     fig3 = go.Figure(go.Bar(x=dr_f["Month"], y=dr_f["Flight_Cycles"],
                              marker_color=CLR_BLUE, opacity=0.8,
@@ -215,7 +215,6 @@ if section == "🏠 Overview":
     fig3.update_layout(**plotly_layout("", 260))
     st.plotly_chart(fig3, use_container_width=True)
 
-    # ── Summary table ─────────────────────────────────────────────────────────
     st.markdown('<div class="section-header">Period Summary Table</div>', unsafe_allow_html=True)
     summary = dr_f[["Month","Flight_Cycles","Tech_Delay_Count","DR_Pct","DR_Target","Status"]].copy()
     summary.columns = ["Month","Flt Cycles","Tech Delays","DR (%)","Target (%)","Status"]
@@ -235,10 +234,10 @@ if section == "🏠 Overview":
 elif section == "✈️ Dispatch Reliability":
     st.markdown("## ✈️ Aircraft Dispatch Reliability")
 
-    meet_count = (dr_f["Status"] == "MEET").sum()
+    meet_count  = (dr_f["Status"] == "MEET").sum()
     below_count = (dr_f["Status"] == "BELOW").sum()
-    avg_dr = dr_f["DR_Pct"].mean()
-    avg_target = dr_f["DR_Target"].mean()
+    avg_dr      = dr_f["DR_Pct"].mean()
+    avg_target  = dr_f["DR_Target"].mean()
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Avg Dispatch Reliability", f"{avg_dr:.2f}%", f"{avg_dr - avg_target:+.2f}% vs target")
@@ -246,7 +245,6 @@ elif section == "✈️ Dispatch Reliability":
     m3.metric("Avg Tech Delay Count", f"{dr_f['Tech_Delay_Count'].mean():.1f}")
     m4.metric("Total Flight Cycles", f"{dr_f['Flight_Cycles'].sum():,}")
 
-    # DR trend
     st.markdown('<div class="section-header">Dispatch Reliability vs Target</div>', unsafe_allow_html=True)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dr_f["Month"], y=dr_f["DR_Target"],
@@ -265,7 +263,6 @@ elif section == "✈️ Dispatch Reliability":
 
     col1, col2 = st.columns(2)
     with col1:
-        # Tech Delay bars
         st.markdown('<div class="section-header">Technical Delay Count</div>', unsafe_allow_html=True)
         fig2 = go.Figure(go.Bar(
             x=dr_f["Month"], y=dr_f["Tech_Delay_Count"],
@@ -276,7 +273,6 @@ elif section == "✈️ Dispatch Reliability":
         st.plotly_chart(fig2, use_container_width=True)
 
     with col2:
-        # vs Target bar
         st.markdown('<div class="section-header">DR vs Target (Delta)</div>', unsafe_allow_html=True)
         delta = dr_f["DR_Pct"] - dr_f["DR_Target"]
         fig3 = go.Figure(go.Bar(
@@ -288,7 +284,6 @@ elif section == "✈️ Dispatch Reliability":
         fig3.update_layout(**plotly_layout("", 310))
         st.plotly_chart(fig3, use_container_width=True)
 
-    # Data table
     st.markdown('<div class="section-header">Detailed Data</div>', unsafe_allow_html=True)
     display = dr_f.copy()
     display["vs Target"] = (display["DR_Pct"] - display["DR_Target"]).round(2)
@@ -313,10 +308,10 @@ elif section == "🔧 DMI":
     avg_ext     = dmi_f["DMI_1st_Ext"].mean()
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Avg DMI Close Rate",   f"{avg_close:.2f}%")
-    m2.metric("Avg Open DMI/AC",      f"{avg_open_ac:.3f}", delta=f"Target {dmi_f['Target_Open_per_AC'].mean():.2f}")
-    m3.metric("Avg DMI 1st Ext.",     f"{avg_ext:.2f}%")
-    m4.metric("Avg Open DMI Count",   f"{dmi_f['Avg_Open_DMI'].mean():.1f}")
+    m1.metric("Avg DMI Close Rate",  f"{avg_close:.2f}%")
+    m2.metric("Avg Open DMI/AC",     f"{avg_open_ac:.3f}", delta=f"Target {dmi_f['Target_Open_per_AC'].mean():.2f}")
+    m3.metric("Avg DMI 1st Ext.",    f"{avg_ext:.2f}%")
+    m4.metric("Avg Open DMI Count",  f"{dmi_f['Avg_Open_DMI'].mean():.1f}")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -386,34 +381,54 @@ elif section == "🔧 DMI":
 elif section == "⏱️ On-Time Performance":
     st.markdown("## ⏱️ On-Time Performance (OTP)")
 
-    otp_avail = otp_f.dropna(subset=["OTP_Pct"])
+    # ✅ FIX BUG 3 & 4: Removed stale dropna() logic and "data pending" banner.
+    # All 15 months now have real OTP data. Metrics are now dynamic (not hardcoded).
+    avg_otp    = otp_f["OTP_Pct"].mean()
+    latest_otp = otp_f.iloc[-1]
+    latest_month = latest_otp["Month"]
+    latest_val   = latest_otp["OTP_Pct"]
+    latest_delta = latest_val - latest_otp["OTP_Target"]
 
-    if otp_avail.empty:
-        st.info("ℹ️ OTP data is not yet available for the selected range. Data is available from Jan 2026 onward.")
-    else:
-        avg_otp = otp_avail["OTP_Pct"].mean()
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Avg OTP", f"{avg_otp:.2f}%", f"{avg_otp - 85:.2f}% vs target 85%")
-        m2.metric("Months of Data", f"{len(otp_avail)}")
-        m3.metric("Latest OTP (Mar 26)", "80.78%", "-4.22% vs target")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Avg OTP (Selected Range)", f"{avg_otp:.2f}%", f"{avg_otp - 85:.2f}% vs target 85%")
+    m2.metric("Months of Data", f"{len(otp_f)}")
+    # ✅ BUG 4 fixed: metric now reads from filtered data, not hardcoded
+    m3.metric(f"Latest OTP ({latest_month})", f"{latest_val:.2f}%", f"{latest_delta:+.2f}% vs target")
 
-        st.markdown('<div class="section-header">OTP Trend vs Target (85%)</div>', unsafe_allow_html=True)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=otp_avail["Month"], y=otp_avail["OTP_Target"],
-                                 name="Target (85%)", line=dict(color=CLR_AMBER, dash="dash", width=2)))
-        fig.add_trace(go.Bar(x=otp_avail["Month"], y=otp_avail["OTP_Pct"],
-                             name="OTP (%)",
-                             marker_color=[CLR_BELOW]*len(otp_avail),
-                             opacity=0.8,
-                             text=[f"{v:.2f}%" for v in otp_avail["OTP_Pct"]],
-                             textposition="outside", textfont=dict(size=11)))
-        fig.update_layout(**plotly_layout("", 380))
-        fig.update_yaxes(range=[65, 90])
-        st.plotly_chart(fig, use_container_width=True)
+    st.markdown('<div class="section-header">OTP Trend vs Target (85%)</div>', unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=otp_f["Month"], y=otp_f["OTP_Target"],
+        name="Target (85%)", line=dict(color=CLR_AMBER, dash="dash", width=2)
+    ))
+    # ✅ FIX BUG 5: Bar colours are now dynamic — green if OTP >= target, red if below
+    fig.add_trace(go.Bar(
+        x=otp_f["Month"],
+        y=otp_f["OTP_Pct"],
+        name="OTP (%)",
+        marker_color=[CLR_MEET if v >= t else CLR_BELOW
+                      for v, t in zip(otp_f["OTP_Pct"], otp_f["OTP_Target"])],
+        opacity=0.85,
+        text=[f"{v:.2f}%" for v in otp_f["OTP_Pct"]],
+        textposition="outside",
+        textfont=dict(size=10),
+    ))
+    fig.update_layout(**plotly_layout("", 400))
+    fig.update_yaxes(range=[50, 95])
+    st.plotly_chart(fig, use_container_width=True)
 
     st.markdown('<div class="section-header">OTP Data Table</div>', unsafe_allow_html=True)
     disp = otp_f[["Month","Flight_Cycles","OTP_Pct","OTP_Target","Status"]].copy()
     disp.columns = ["Month","Flight Cycles","OTP (%)","Target (%)","Status"]
-    st.dataframe(disp, use_container_width=True, hide_index=True)
 
-    st.info("📌 OTP data for Jan 2025 – Dec 2025 is pending. Please update the source file to populate the full trend.")
+    def highlight_otp_status(row):
+        color = "#14532d" if row["Status"] == "MEET" else "#450a0a"
+        return [f"background-color: {color}; color: white" if col == "Status" else "" for col in row.index]
+
+    st.dataframe(
+        disp.style
+        .apply(highlight_otp_status, axis=1)
+        .format({"OTP (%)": "{:.2f}", "Target (%)": "{:.2f}"}),
+        use_container_width=True,
+        hide_index=True,
+    )
